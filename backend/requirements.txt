@@ -1,0 +1,13 @@
+fastapi>=0.110.0,<0.111.0
+uvicorn[standard]>=0.27.0,<0.28.0
+redis[hiredis]>=5.0.1,<6.0.0 # Use hiredis for performance
+pydantic>=2.5.0,<3.0.0
+loguru>=0.7.2,<0.8.0
+websockets>=12.0,<13.0 # For FastAPI WebSocket support
+aioredis>=2.0.0,<3.0.0 # Ensure compatibility if using older redis-py interfaces somewhere, but redis>=5 uses built-in async
+sqlalchemy[asyncio]>=2.0.25,<2.1.0
+alembic>=1.13.1,<1.14.0 # For DB migrations (optional setup)
+aiosqlite>=0.19.0,<0.20.0 # Async driver for SQLite
+aiohttp>=3.9.3,<3.10.0 # For async HTTP requests (agents -> toolcore)
+python-dotenv>=1.0.0,<1.1.0 # For potentially loading .env files if not using docker env vars
+pydantic_settings>=2.8.1

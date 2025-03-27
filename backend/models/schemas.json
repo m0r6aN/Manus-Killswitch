@@ -1,0 +1,134 @@
+"$defs": {
+    "MessageIntent": {
+      "enum": [
+        "chat",
+        "start_task",
+        "check_status",
+        "modify_task"
+      ],
+      "title": "MessageIntent",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "task_id": {
+      "description": "Task ID this message relates to",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "agent": {
+      "description": "Sender\u2014Commander or AI",
+      "title": "Agent",
+      "type": "string"
+    },
+    "content": {
+      "description": "Message content",
+      "title": "Content",
+      "type": "string"
+    },
+    "intent": {
+      "$ref": "#/$defs/MessageIntent",
+      "default": "chat",
+      "description": "Intent: start_task, check_status, chat"
+    },
+    "timestamp": {
+      "description": "UTC timestamp",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "agent",
+    "content"
+  ],
+  "title": "Message",
+  "type": "object"
+}
+2025-03-22 07:32:32,893 - __main__ - INFO - Task Message Schema: {
+  "$defs": {
+    "MessageIntent": {
+      "enum": [
+        "chat",
+        "start_task",
+        "check_status",
+        "modify_task"
+      ],
+      "title": "MessageIntent",
+      "type": "string"
+    },
+    "TaskEvent": {
+      "enum": [
+        "plan",
+        "execute",
+        "refine",
+        "complete",
+        "escalate"
+      ],
+      "title": "TaskEvent",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "task_id": {
+      "description": "Task ID this message relates to",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "agent": {
+      "description": "Sender\u2014Commander or AI",
+      "title": "Agent",
+      "type": "string"
+    },
+    "content": {
+      "description": "Message content",
+      "title": "Content",
+      "type": "string"
+    },
+    "intent": {
+      "$ref": "#/$defs/MessageIntent",
+      "default": "chat",
+      "description": "Intent: start_task, check_status, chat"
+    },
+    "timestamp": {
+      "description": "UTC timestamp",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "target_agent": {
+      "description": "Target agent for this task",
+      "title": "Target Agent",
+      "type": "string"
+    },
+    "event": {
+      "$ref": "#/$defs/TaskEvent",
+      "description": "Task stage: plan, execute, refine, complete, escalate"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Confidence in this step, optional",
+      "title": "Confidence"
+    }
+  },
+  "required": [
+    "task_id",
+    "agent",
+    "content",
+    "target_agent",
+    "event"
+  ],
+  "title": "Task",
+  "type": "object"
+}

@@ -1,0 +1,28 @@
+# Use an official Python runtime as a parent image
+FROM python:3.10-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Install system dependencies if needed (e.g., for specific libraries)
+# RUN apt-get update && apt-get install -y --no-install-recommends some-package && rm -rf /var/lib/apt/lists/*
+
+# Install pip dependencies
+# Copy requirements first to leverage Docker cache
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+
+# Copy the backend source code into the container
+COPY backend/ /app/backend/
+
+# The command to run the application will be provided by docker-compose
+# Example placeholder CMD (will be overridden):
+# CMD ["python", "backend/main_websocket.py"]
+
+# Expose ports if needed (though docker-compose handles publishing)
+# EXPOSE 8000
+# EXPOSE 8001

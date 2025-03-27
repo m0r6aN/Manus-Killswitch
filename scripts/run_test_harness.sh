@@ -1,0 +1,1 @@
+# Script to run the task factory test harness
