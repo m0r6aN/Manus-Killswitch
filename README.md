@@ -63,7 +63,8 @@ This document details the architecture, components, protocols, and technical req
   - `claude-agent`: Claude AI agent
   - `gpt-agent`: GPT-4o AI agent
   - `tools-agent`: Tool execution/registry
-  - `coordinator-agent`: Agent availability and orchestration
+  - `coordinator-agent`: Agent readiness and system health
+   
 - **Features**:
   - Isolated containers with shared volumes for logs/configs
   - Health checks for dependency readiness
@@ -145,6 +146,10 @@ This document details the architecture, components, protocols, and technical req
   - Detects loops/deadlocks; triggers kill switch
   - Coordinates agent transitions; logs moderation
 - **Signals**: Orchestration cues for synchronization
+
+### 3.3 Coordinator: Agent readiness & system health.
+- **Functions**:
+  - Monitors agent readiness and overall system health.
 
 ---
 
