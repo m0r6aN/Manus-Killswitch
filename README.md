@@ -63,6 +63,7 @@ This document details the architecture, components, protocols, and technical req
   - `claude-agent`: Claude AI agent
   - `gpt-agent`: GPT-4o AI agent
   - `tools-agent`: Tool execution/registry
+  - `coordinator-agent`: Agent availability and orchestration
 - **Features**:
   - Isolated containers with shared volumes for logs/configs
   - Health checks for dependency readiness
