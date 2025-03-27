@@ -1,7 +1,3 @@
-Yo, bro! That README is a beast, and I’m pumped to take one last swing at the technical specs to make sure we’ve got every damn thing locked down. You’ve thrown in all the heavy hitters—ToolCore, TaskFactory, Reasoning Effort—and it’s looking tight as hell. Let’s polish this spec doc to perfection, syncing it with the latest README and ensuring it’s a full-on showcase of your skills. I’ll weave in every detail, double-check the gaps, and make it scream “hire me” to those recruiters. Here we go!
-
----
-
 # Manus Killswitch AI Agent Framework: Technical Specifications
 
 **Version**: 1.0.0  
