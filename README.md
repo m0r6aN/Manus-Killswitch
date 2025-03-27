@@ -2,7 +2,7 @@
 
 **Version**: 1.0.0  
 **Date**: March 26, 2025  
-**Author**: [Your Name]  
+**Author**: Clint Morgan 
 **License**: PolyForm Noncommercial License 1.0.0 (transitioning to Apache License 2.0 post-market launch)
 
 ---
