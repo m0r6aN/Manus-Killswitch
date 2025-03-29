@@ -2,7 +2,6 @@ import datetime as dt
 from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator, model_validator
-import uuid
 
 # --- Enums ---
 
@@ -44,15 +43,36 @@ class ReasoningEffort(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
-
+    
+def get_reasoning_strategy(effort: ReasoningEffort) -> str:
+    """
+    Maps reasoning effort to a cognitive strategy the agent should use.
+    """
+    if effort == ReasoningEffort.LOW:
+        return "direct_answer"
+    elif effort == ReasoningEffort.MEDIUM:
+        return "chain-of-thought"
+    elif effort == ReasoningEffort.HIGH:
+        return "chain-of-draft"
+    return "unknown"
+    
+class ReasoningStrategy(str, Enum):
+    DIRECT = "direct_answer"
+    COT = "chain-of-thought"
+    COD = "chain-of-draft"
+    
 # --- Core Message/Task Models ---
 
 class BaseMessage(BaseModel):
-    """Base model for all communication objects."""
-    task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    agent: str # Name of the originating agent/system/user
-    timestamp: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
-    intent: MessageIntent
+    type: str = Field(..., description="Message type identifier")
+    timestamp: dt.datetime = Field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc),
+        description="UTC timestamp"
+    )
+    
+    model_config = {
+        "json_encoders": {dt.datetime: lambda v: v.isoformat()}
+    }
 
     def serialize(self) -> str:
         # Pydantic v2 uses model_dump_json
@@ -77,6 +97,7 @@ class Task(BaseMessage):
     event: TaskEvent = TaskEvent.PLAN # Current state/event of the task
     confidence: Optional[float] = Field(default=0.9, ge=0.0, le=1.0) # Agent's confidence in its current step/plan
     reasoning_effort: Optional[ReasoningEffort] = None # Estimated effort
+    reasoning_strategy: Optional[ReasoningStrategy] = Field(None, description="Agent thinking strategy, e.g., chain-of-thought")
     metadata: Optional[Dict[str, Any]] = None # Additional context
 
     # Re-validate effort on creation based on content/event/intent
@@ -90,6 +111,13 @@ class Task(BaseMessage):
         if content and not values.get('reasoning_effort'): # Only estimate if not provided
              values['reasoning_effort'] = estimate_reasoning_effort(content, event.value if event else None, intent.value if intent else None)
         return values
+    
+class SystemStatusMessage(BaseMessage):
+    system_ready: bool = Field(..., description="Whether the system is ready")
+    agent_status: Dict[str, str] = Field(..., description="Status of each agent")
+    
+    # Set the type field automatically
+    type: str = "system_status_update"
 
 
 class TaskResult(Task):
@@ -143,3 +171,4 @@ class WebSocketMessage(BaseModel):
     @classmethod
     def deserialize(cls, data: str) -> 'WebSocketMessage':
         return cls.model_validate_json(data)
+

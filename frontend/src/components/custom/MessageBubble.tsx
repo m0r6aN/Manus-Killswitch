@@ -33,7 +33,7 @@ export function MessageBubble({
     setSelectedTool(toolName);
     try {
       // Fetch tool metadata to get parameters
-      const response = await axios.get(`http://localhost:5000/tools/${toolName}`);
+      const response = await axios.get(`http://localhost:8001/tools/${toolName}`);
       const tool = response.data;
       const params = tool.parameters ? JSON.parse(tool.parameters) : {};
       // Initialize parameter inputs
@@ -60,7 +60,7 @@ export function MessageBubble({
     if (!selectedTool) return;
     setIsExecuting(true);
     try {
-      const response = await axios.post("http://localhost:5000/execute", {
+      const response = await axios.post("http://localhost:8001/execute", {
         name: selectedTool,
         params: toolParams,
       });

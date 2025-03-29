@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     TOOLS_AGENT_NAME: str = "tools-agent" # Name mainly for logging/reference
     CODEX_AGENT_NAME: str = "codex"
     COORDINATOR_AGENT_NAME: str = "coordinator"
+    
+    
 
     # For use by the Coordinator agent
     REQUIRED_AGENTS_FOR_READY: List[str] = [

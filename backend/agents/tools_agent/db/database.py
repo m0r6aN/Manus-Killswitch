@@ -34,7 +34,9 @@ AsyncSessionFactory = sessionmaker(
 # Base class for declarative models
 Base = declarative_base()
 
-async def get_db() -> AsyncSession:
+from typing import AsyncGenerator
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency function that yields an AsyncSession."""
     async with AsyncSessionFactory() as session:
         try:

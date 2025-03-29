@@ -70,13 +70,17 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: manus_grok_agent
-    command: python backend/main_grok_agent.py
+    command: python -m backend.main_grok_agent
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AGENT_NAME=grok
+      - AGENT_NAME=${GROK_AGENT_NAME}
+      - AGENT_API_KEY=${GROK_API_KEY}
+      - API_BASE=${GROK_API_BASE}
+      - API_VERSION=${GROK_API_VERSION}
+      - LLM_MODEL=${GROK_MODEL}
       - LOGURU_LEVEL=DEBUG
-      - TOOLS_API_URL=http://tools-agent:8001
+      - TOOLS_API_BASE=http://tools-agent:8001
     volumes:
       - ./backend:/app/backend
     networks:
@@ -92,14 +96,17 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: manus_claude_agent
-    command: python -m backend.main_websocket # Use module path, no --reload with -m usually
-    #command: python backend/main_claude_agent.py
+    command: python -m backend.main_claude_agent
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AGENT_NAME=claude
+      - AGENT_NAME=${GPT_AGENT_NAME}
+      - AGENT_API_KEY=${ANTHROPIC_API_KEY}
+      - API_BASE=${ANTHROPIC_API_BASE}
+      - API_VERSION=${ANTHROPIC_API_VERSION}
+      - LLM_MODEL=${CLAUDE_MODEL}
       - LOGURU_LEVEL=DEBUG
-      - TOOLS_API_URL=http://tools-agent:8001
+      - TOOLS_API_BASE=http://tools-agent:8001
     volumes:
       - ./backend:/app/backend
     networks:
@@ -115,13 +122,17 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: manus_gpt_agent
-    command: python backend/main_gpt_agent.py
+    command: python -m backend.main_gpt_agent
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AGENT_NAME=gpt
+      - AGENT_NAME=${GPT_AGENT_NAME}
+      - AGENT_API_KEY=${OPENAI_API_KEY}
+      - API_BASE=${OPENAI_API_BASE}
+      - API_VERSION=${OPENAI_API_VERSION}
+      - LLM_MODEL=${GPT_MODEL}
       - LOGURU_LEVEL=DEBUG
-      - TOOLS_API_URL=http://tools-agent:8001
+      - TOOLS_API_BASE=http://tools-agent:8001
     volumes:
       - ./backend:/app/backend
     networks:
@@ -132,76 +143,49 @@ services:
       - tools-agent
     restart: unless-stopped
 
-  codex-agent:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    container_name: manus_codex_agent
-    command: python backend/main_codex_agent.py
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - AGENT_NAME=codex # Set specifically if needed, though agent reads from config
-      - CODEX_AGENT_NAME=codex # Ensure config setting is passed if needed
-      - CODEX_API_KEY=${CODEX_API_KEY:-YOUR_CODEX_LLM_API_KEY_HERE} # Use env var or default
-      - LOGURU_LEVEL=DEBUG
-      - TOOLS_API_URL=http://tools-agent:8001
-    volumes:
-      - ./backend:/app/backend
-    networks:
-      - ai-network
-    depends_on:
-      - redis
-      - websocket-server
-      - tools-agent # May need tools? Unlikely for workflow gen.
-      - grok-agent # Depends on orchestrator conceptually
-    restart: unless-stopped
-
   coordinator-agent:
     build:
       context: .
       dockerfile: Dockerfile.backend
     container_name: manus_coordinator_agent
-    command: python backend/main_coordinator_agent.py
+    command: python -m backend.main_coordinator_agent
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - COORDINATOR_AGENT_NAME=coordinator # Pass from config.py via settings
+      - AGENT_NAME=${COORDINATOR_AGENT_NAME}
       - LOGURU_LEVEL=DEBUG
-      # No external API keys needed typically
     volumes:
       - ./backend:/app/backend
     networks:
       - ai-network
     depends_on:
-      # Depends only on Redis being up to start monitoring
       redis:
         condition: service_healthy
       # Doesn't strictly depend on other agents being up, as its job *is* to wait for them
     restart: unless-stopped
 
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    container_name: manus_frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws # Connect to host machine's mapped port
-      # Use this if running frontend locally and backend in docker:
-      # - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
-      # Use this for frontend container talking to backend container (requires modification in useWebSocket hook):
-      # - NEXT_PUBLIC_WS_URL=ws://websocket-server:8000/ws
-    volumes:
-      - ./frontend:/app # Mount code for hot-reloading (if using dev)
-      - /app/node_modules # Don't mount host node_modules
-      - /app/.next
-    networks:
-      - ai-network
-    depends_on:
-      - websocket-server
-    restart: unless-stopped
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   container_name: manus_frontend
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws # Connect to host machine's mapped port
+  #     # Use this if running frontend locally and backend in docker:
+  #     # - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
+  #     # Use this for frontend container talking to backend container (requires modification in useWebSocket hook):
+  #     # - NEXT_PUBLIC_WS_URL=ws://websocket-server:8000/ws
+  #   volumes:
+  #     - ./frontend:/app # Mount code for hot-reloading (if using dev)
+  #     - /app/node_modules # Don't mount host node_modules
+  #     - /app/.next
+  #   networks:
+  #     - ai-network
+  #   depends_on:
+  #     - websocket-server
+  #   restart: unless-stopped
 
 networks:
   ai-network:

@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator'; // Import Separator
 import { format } from 'date-fns'; // For timestamp formatting
 import { cn } from "@/lib/utils"; // For conditional classes
+import StreamBox from './StreamBox';
 
 
 // Define message type again for clarity within this component
@@ -34,7 +35,8 @@ const ChatContent: React.FC<ChatContentProps> = ({ messages }) => {
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [messages]);
-
+ 
+ 
   const formatTimestamp = (isoString: string) => {
     try {
       return format(new Date(isoString), 'HH:mm:ss');
@@ -44,7 +46,7 @@ const ChatContent: React.FC<ChatContentProps> = ({ messages }) => {
   };
 
   return (
-    <ScrollArea className="flex-1 p-4" ref={viewportRef}>
+    <ScrollArea className="flex-1 overflow-y-auto p-4" ref={viewportRef}>
        <div className="space-y-4 pb-4"> {/* Add padding bottom */}
         {messages.map((msg, index) => (
           <div
@@ -82,13 +84,14 @@ const ChatContent: React.FC<ChatContentProps> = ({ messages }) => {
             </Card>
           </div>
         ))}
+      
          {messages.length === 0 && (
              <div className="text-center text-gray-500 dark:text-gray-400 mt-10">
                  Start by typing a message below...
              </div>
          )}
       </div>
-    </ScrollArea>
+    </ScrollArea>    
   );
 };
 

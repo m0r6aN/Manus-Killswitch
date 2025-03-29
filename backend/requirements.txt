@@ -1,13 +1,20 @@
-fastapi>=0.110.0,<0.111.0
-uvicorn[standard]>=0.27.0,<0.28.0
-redis[hiredis]>=5.0.1,<6.0.0 # Use hiredis for performance
-pydantic>=2.5.0,<3.0.0
-loguru>=0.7.2,<0.8.0
-websockets>=12.0,<13.0 # For FastAPI WebSocket support
-aioredis>=2.0.0,<3.0.0 # Ensure compatibility if using older redis-py interfaces somewhere, but redis>=5 uses built-in async
-sqlalchemy[asyncio]>=2.0.25,<2.1.0
-alembic>=1.13.1,<1.14.0 # For DB migrations (optional setup)
-aiosqlite>=0.19.0,<0.20.0 # Async driver for SQLite
-aiohttp>=3.9.3,<3.10.0 # For async HTTP requests (agents -> toolcore)
-python-dotenv>=1.0.0,<1.1.0 # For potentially loading .env files if not using docker env vars
+fastapi>=0.115.12
+uvicorn[standard]>=0.34.0
+redis[hiredis]>=5.2.1 # Use hiredis for performance
+pydantic>=2.11.0
 pydantic_settings>=2.8.1
+loguru>=0.7.3
+websockets>=15.0.1 # For FastAPI WebSocket support
+aioredis>=2.0.1,<3.0.0 # Ensure compatibility if using older redis-py interfaces somewhere, but redis>=5 uses built-in async
+sqlalchemy[asyncio]>=2.0.40
+aiosqlite>=0.21.0
+aiohttp>=3.11.14  # For async HTTP requests (agents -> toolcore)
+python-dotenv>=1.1.0 # For potentially loading .env files if not using docker env vars
+jsonschema>=4.23.0
+google-generativeai>=0.8.4
+httpx>=0.23.2
+OpenAI>=1.69.0
+umap
+matplotlib
+pandas
+xao_sdk

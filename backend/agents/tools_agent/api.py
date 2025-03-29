@@ -1,6 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, Body, BackgroundTasks
+import json
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import crud, models, schemas, executor
 from .db.database import get_db, init_db, close_db
@@ -17,7 +20,7 @@ import uuid
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- Startup Logic ---
-    logger.info("Starting ToolCore API (lifespan)...")
+    logger.info("Starting ToolCore API (lifespan) with hot reload...")
     await init_db() # Initialize the database and create tables
     # We don't necessarily need to get/store the redis pool on app.state here,
     # as routes get it via Depends(get_redis_pool).
@@ -43,6 +46,14 @@ app = FastAPI(
     description="API for managing and executing tools within the Manus Killswitch Framework.",
     version="1.0.0",
     lifespan=lifespan # Pass the lifespan manager
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # More permissive for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Health Check Endpoint ---

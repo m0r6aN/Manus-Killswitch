@@ -23,12 +23,12 @@ export const LayoutWrapper = ({ children }: { children: React.ReactNode[] }) => 
       </div>
 
       {/* Column 2: Chat List */}
-      <div className="bg-white dark:bg-gray-850 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-y-auto">
+      <div className="dark:bg-gray-850 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-y-auto">
          {chatList}
       </div>
 
       {/* Column 3: Chat Content */}
-      <div className="bg-gray-50 dark:bg-gray-900 flex flex-col h-full overflow-hidden">
+      <div className="bg-gray-50 dark:bg-gray-900 flex flex-col h-full">
          {/* Chat content should handle its own scrolling */}
          {chatContent}
       </div>

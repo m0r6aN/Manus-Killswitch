@@ -1,7 +1,7 @@
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import redis.asyncio as redis
 import aiohttp
 
@@ -13,7 +13,7 @@ from backend.factories.factories import MessageFactory, TaskResultFactory
 class BaseAgent(ABC):
     """Abstract base class for all agents in the framework."""
 
-    def __init__(self, agent_name: str, api_key: Optional[str] = None):
+    def __init__(self, agent_name: str, llm_model: Optional[str] = None, api_url: Optional[str] = None, api_key: Optional[str] = None):
         """
         Initializes the BaseAgent.
 
@@ -22,6 +22,8 @@ class BaseAgent(ABC):
             api_key: Optional API key for external services (e.g., LLMs).
         """
         self.agent_name = agent_name
+        self.model = llm_model
+        self.api_url = api_url
         self.api_key = api_key
         self.redis_client: Optional[redis.Redis] = None
         self.pubsub: Optional[redis.client.PubSub] = None

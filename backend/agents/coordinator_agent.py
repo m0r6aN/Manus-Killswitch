@@ -1,3 +1,4 @@
+import os
 import asyncio
 import json
 from typing import Any, Dict, Optional, Union, List
@@ -14,9 +15,14 @@ class CoordinatorAgent(BaseAgent):
     Coordinator Agent: Monitors agent readiness and overall system health.
     Inherits from BaseAgent for consistency.
     """
-
     def __init__(self):
-        super().__init__(agent_name=settings.COORDINATOR_AGENT_NAME)
+        agent_name = os.environ.get("AGENT_NAME")
+        llm_model = os.environ.get("LLM_MODEL")
+        api_key = os.environ.get("AGENT_API_KEY")
+        api_url = os.environ.get("API_URL")
+        api_version = os.environ.get("API_VERSION")
+        
+        super().__init__(agent_name=agent_name,)
         # Get required agents from settings
         self.required_agents: List[str] = settings.REQUIRED_AGENTS_FOR_READY
         self.ready_timeout: int = settings.AGENT_READY_TIMEOUT

@@ -34,17 +34,17 @@ class WorkflowTask(BaseModel):
 
 class WorkflowPlan(BaseModel):
     # The root model is simply a list of tasks
-    __root__: List[WorkflowTask]
+    RootModel: List[WorkflowTask]
 
     # Allow iteration directly over the list
     def __iter__(self):
-        return iter(self.__root__)
+        return iter(self.RootModel)
 
     def __getitem__(self, item):
-        return self.__root__[item]
+        return self.RootModel[item]
 
     def __len__(self):
-        return len(self.__root__)
+        return len(self.RootModel)
 
 # Input model for the workflow generation request
 class WorkflowGenerationRequest(BaseModel):

@@ -7,15 +7,16 @@ from backend.core.redis_client import close_redis_pool
 
 async def main():
     agent = GrokAgent()
+    await agent.hub.start()  # Start the hub first
     await agent.start()
     try:
-        # Keep the agent running indefinitely
-        await asyncio.Future() # This will wait forever unless cancelled
+        while True:
+            await asyncio.sleep(3600)
     except asyncio.CancelledError:
         logger.info("GrokAgent main task cancelled.")
     finally:
         await agent.stop()
-        # await close_redis_pool()
+        await agent.hub.stop()
 
 if __name__ == "__main__":
     try:

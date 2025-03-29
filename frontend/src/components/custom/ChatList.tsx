@@ -24,7 +24,7 @@ interface ChatListProps {
   isConnected: boolean;
   createDirectThread: (agentId: string) => void;
   setActiveThreadId: (threadId: string) => void;
-  setChatThreads: React.Dispatch<React.SetStateAction<ChatThread[]>>; // Ensure this is defined
+  setChatThreads: React.Dispatch<React.SetStateAction<ChatThread[]>>;
   formatTimestamp: (timestamp: string) => string;
 }
 
@@ -36,7 +36,7 @@ export function ChatList({
   isConnected,
   createDirectThread,
   setActiveThreadId,
-  setChatThreads, // Destructure it here
+  setChatThreads, 
   formatTimestamp,
 }: ChatListProps) {
   const [tools, setTools] = useState<Tool[]>([]);
@@ -44,7 +44,7 @@ export function ChatList({
   useEffect(() => {
     const fetchTools = async () => {
       try {
-        const response = await axios.get("http://localhost:5000/tools");
+        const response = await axios.get("http://localhost:8001/tools");
         setTools(response.data);
       } catch (error) {
         console.error("Error fetching tools:", error);
@@ -154,7 +154,7 @@ export function ChatList({
         <p className="text-sm font-semibold text-foreground mb-3">RECENT CHATS</p>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 overflow-y-auto">
         <div className="space-y-2 p-3">
           {chatThreads.map((thread) => (
             <div

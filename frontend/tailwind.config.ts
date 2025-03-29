@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss"
 
 const config = {
-  darkMode: ["class", ".dark-mode"],
+  darkMode: "class",
   content: [
     "./src/pages/**/*.{ts,tsx}",
     "./src/components/**/*.{ts,tsx}",
@@ -18,6 +18,9 @@ const config = {
       },
     },
     extend: {
+      gridTemplateColumns: {
+        'layout': 'minmax(200px, 1fr) minmax(250px, 1fr) minmax(0, 3fr) minmax(300px, 1fr)', // Sidebar, ChatList, ChatContent, CodePanel
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

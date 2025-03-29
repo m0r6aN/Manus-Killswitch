@@ -9,6 +9,10 @@ export enum MessageIntent {
   CODE_EXECUTE = "code_execute",
   TOOL_SUGGEST = "tool_suggest",
   TOOL_EXECUTE = "tool_execute",
+  OPTIMIZE = "optimize",
+  ANALYZE = "analyze",
+  RESPOND = "respond",
+  REVIEW = "review"
 }
 
 export enum TaskEvent {
@@ -41,6 +45,9 @@ export interface Task extends Message {
   target_agent: string;
   event: TaskEvent;
   confidence?: number;
+  reasoning_effort?: string;
+  reasoning_strategy?: string;
+  created_at: string;
 }
 
 // TaskResult interface extending Task

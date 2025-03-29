@@ -100,7 +100,7 @@ export const CodePanel: React.FC<CodePanelProps> = ({
         code: codeInput,
       };
 
-      const response = await axios.post("http://localhost:5000/tools", toolData);
+      const response = await axios.post("http://localhost:8001/tools", toolData);
 
       toast({
         title: "Tool Saved",
