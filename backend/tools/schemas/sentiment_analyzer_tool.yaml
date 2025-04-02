@@ -1,0 +1,16 @@
+sentiment_analyzer_tool = schemas.ToolCreate(
+    name="sentiment_analyzer",
+    description="Analyzes the sentiment of a text input, returning a score and label.",
+    parameters=json.dumps({
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "Text to analyze"}
+        },
+        "required": ["text"]
+    }),
+    path="tools/sentiment_analyzer.py",
+    entrypoint="sentiment_analyzer.py",
+    type="script",
+    version="1.0.0",
+    tags='["text", "sentiment"]'
+)

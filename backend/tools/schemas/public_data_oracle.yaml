@@ -1,0 +1,17 @@
+public_data_oracle_tool = schemas.ToolCreate(
+    name="public_data_oracle",
+    description="Fetches data from public sources like Wikipedia or statistical databases.",
+    parameters=json.dumps({
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Data query"},
+            "source": {"type": "string", "enum": ["wiki", "stats"], "default": "wiki", "description": "Data source"}
+        },
+        "required": ["query"]
+    }),
+    path="tools/public_data_oracle.py",
+    entrypoint="public_data_oracle.py",
+    type="script",
+    version="1.0.0",
+    tags='["data", "oracle", "public"]'
+)

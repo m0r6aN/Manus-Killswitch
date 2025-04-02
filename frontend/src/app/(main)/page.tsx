@@ -1,14 +1,14 @@
 "use client"; // Required for useState, useEffect, hooks
 
 import React, { useState, useCallback, useEffect } from "react";
-import Sidebar from "@/components/custom/Sidebar";
-import { ChatList } from "@/components/custom/ChatList";
-import ChatContent from "@/components/custom/ChatContent";
-import { CodePanel } from "@/components/custom/CodePanel";
-import ChatInput from "@/components/custom/ChatInput";
+import Sidebar from "@/components/nav/sidebar";
+import { ChatList } from "@/components/chat/chat-list";
+import ChatContent from "@/components/chat/chat-content";
+import { CodePanel } from "@/components/tools/code-panel";
+import ChatInput from "@/components/chat/chat-input";
 import { useWebSocket } from "@/contexts/websocket-context";
-import { LayoutWrapper } from "@/components/custom/LayoutWrapper";
-import { ConnectionStatus } from "@/components/custom/connection-status";
+import { LayoutWrapper } from "@/components/layout/layout-wrapper";
+import { ConnectionStatus } from "@/components/chat/connection-status";
 
 interface DisplayMessage {
   id: string; // Use task_id or generate unique ID for display

@@ -2,6 +2,11 @@
 /messaging.md
 /print_dir_structure.py
 
+# Web stuff
+.next/
+logs/
+public/
+
 # Python
 .env
 __pycache__/

@@ -20,6 +20,7 @@ from backend.models.models import (
     ReasoningEffort, Message, TaskResult, WebSocketMessage
 )
 
+from config import settings
 
 # Track active WebSocket connections
 active_connections: Dict[str, WebSocket] = {}
@@ -180,83 +181,66 @@ async def wait_for_agents(timeout: int = 30) -> bool:
         await asyncio.sleep(1)
     return True
 
-async def redis_listener(redis_client):
-    """Listen for messages from Redis and broadcast them to WebSocket clients."""
-    channel = "responses_channel"
-    
-    async with redis_client.pubsub() as pubsub:
-        await pubsub.subscribe(channel)
-        logger.info(f"Redis listener subscribed to channel: {channel}")
-        
+# Adapted to frontend channel
+async def frontend_redis_broadcaster(redis_client, manager):
+    """
+    Listens ONLY to the FRONTEND channel and broadcasts messages to WebSocket clients.
+    (This is your adapted existing listener)
+    """
+    channel = settings.FRONTEND_CHANNEL # Standardize channel name
+    pubsub = redis_client.pubsub()
+
+    while True: # Keep trying to connect/subscribe
         try:
-            while True:
+            await pubsub.connect()
+            await pubsub.subscribe(channel)
+            logger.info(f"Frontend Broadcaster subscribed to Redis channel: {channel}")
+
+            while True: # Listen for messages
                 try:
                     message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                    
                     if not message:
                         await asyncio.sleep(0.01)
                         continue
-                        
+
                     if message["type"] == "message":
                         data = message["data"]
                         if isinstance(data, bytes):
                             data = data.decode("utf-8")
-                        
-                        logger.debug(f"Redis message received: {data[:100]}...")
-                        
-                        # Check if any clients are connected before processing
-                        active_connections_count = manager.get_active_connections_count()
-                        if active_connections_count == 0:
-                            logger.debug("No WebSocket clients connected, skipping broadcast")
+
+                        logger.debug(f"Frontend Broadcaster received: {data[:150]}...")
+
+                        if manager.get_active_connections_count() == 0:
+                            # logger.debug("No WebSocket clients, skipping broadcast") # Maybe too noisy
                             continue
-                            
+
                         try:
                             json_data = json.loads(data)
-                            
-                            # Skip messages from frontend to prevent echoing
-                            if json_data.get("source") == "frontend":
-                                logger.debug("Skipping frontend echo")
-                                continue
-                                
-                            # Get message type, defaulting to "message" if not specified
-                            message_type = json_data.get("type", "message")
-                            
-                            # For system_status_update messages
-                            if message_type == "system_status_update":
-                                formatted_message = {
-                                    "type": "system_status_update",
-                                    "payload": json_data
-                                }
-                                await manager.broadcast(formatted_message)
-                                
-                            # If message already has the right structure, broadcast directly
-                            elif "type" in json_data and "payload" in json_data:
-                                await manager.broadcast(json_data)
-                                
-                            # Otherwise, format as a standard message
-                            else:
-                                formatted_message = {
-                                    "type": message_type,
-                                    "payload": json_data
-                                }
-                                await manager.broadcast(formatted_message)
-                                
+                            # Directly broadcast the received JSON data
+                            # Assumes agents format messages correctly via publish_to_frontend
+                            await manager.broadcast(json_data)
+
                         except json.JSONDecodeError:
-                            logger.warning(f"Received non-JSON data from Redis: {data[:100]}...")
+                            logger.warning(f"Frontend Broadcaster received non-JSON data from {channel}: {data[:100]}...")
                         except Exception as e:
-                            logger.error(f"Error processing Redis message: {str(e)}")
-                            
+                            logger.error(f"Error broadcasting Redis message: {e}", exc_info=True)
+
                 except asyncio.CancelledError:
-                    logger.info("Redis listener task cancelled")
-                    break
-                except Exception as e:
-                    logger.exception(f"Unexpected error in Redis listener: {e}")
-                    await asyncio.sleep(1)  # Prevent tight loop on persistent errors
+                    logger.info(f"Frontend Broadcaster task for {channel} cancelled.")
+                    await pubsub.unsubscribe(channel)
+                    return # Exit the outer loop as well
+                except Exception as e: # Catch Redis connection errors etc.
+                    logger.error(f"Frontend Broadcaster error reading from {channel}: {e}", exc_info=True)
+                    await pubsub.unsubscribe(channel) # Unsubscribe before retrying connect
+                    break # Break inner loop, outer loop will retry subscribe
+        except Exception as e:
+             logger.error(f"Fatal error in Frontend Broadcaster setup for {channel}: {e}", exc_info=True)
         finally:
-            logger.info(f"Unsubscribing from Redis channel: {channel}")
-            if pubsub:
-                await pubsub.unsubscribe(channel)
-                await pubsub.close()
+            if pubsub.is_connected():
+                 await pubsub.close() # Clean up connection
+
+        logger.info(f"Retrying Frontend Broadcaster subscription to {channel} in 5 seconds...")
+        await asyncio.sleep(5)
 
 async def process_task_creation(message: dict) -> dict:
     """

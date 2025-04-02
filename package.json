@@ -3,17 +3,17 @@
     "version": "1.0.0",
     "private": true,
     "scripts": {
-      "frontend": "next dev",
-      "backend": "python backend/main.py",
-      "dev": "concurrently \"npm run frontend\" \"npm run backend\""
+        "frontend": "next dev",
+        "backend": "python backend/main.py",
+        "dev": "concurrently \"npm run frontend\" \"npm run backend\""
     },
     "dependencies": {
-      "next": "latest",
-      "react": "latest",
-      "react-dom": "latest"
+        "framer-motion": "^12.6.2",
+        "next": "latest",
+        "react": "latest",
+        "react-dom": "latest"
     },
     "devDependencies": {
-      "concurrently": "^8.0.0"
+        "concurrently": "^8.0.0"
     }
-  }
-  
+}

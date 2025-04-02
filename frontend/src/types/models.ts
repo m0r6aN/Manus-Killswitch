@@ -76,3 +76,16 @@ export interface ChatThread {
   unreadCount?: number;
   type: "collaborative" | "tool" | "direct";
 }
+
+export interface ToolData {
+  name: string;
+  description?: string;
+  //parameters?: string;
+  path?: string;
+  entrypoint?: string;
+  type?: 'function' | 'script' | 'module';
+  version?: string;
+  tags?: string;
+  language: string;
+  code: string;
+}

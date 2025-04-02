@@ -2,6 +2,7 @@ import asyncio
 import json
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
+import uuid
 import redis.asyncio as redis
 import aiohttp
 
@@ -9,11 +10,12 @@ from backend.core.config import settings, logger, get_agent_channel, get_agent_h
 from backend.core.redis_client import get_redis_pool, publish_message, set_key_with_ttl
 from backend.models.models import BaseMessage, Message, Task, TaskResult, MessageIntent, TaskEvent, TaskOutcome
 from backend.factories.factories import MessageFactory, TaskResultFactory
+from backend.tools.agent_tools import ToolExecutionMixin
 
-class BaseAgent(ABC):
+class BaseAgent(ToolExecutionMixin):
     """Abstract base class for all agents in the framework."""
 
-    def __init__(self, agent_name: str, llm_model: Optional[str] = None, api_url: Optional[str] = None, api_key: Optional[str] = None):
+    def __init__(self, agent_name: str, redis_client: redis.Redis, llm_model: Optional[str] = None, api_url: Optional[str] = None, api_key: Optional[str] = None):
         """
         Initializes the BaseAgent.
 
@@ -21,6 +23,9 @@ class BaseAgent(ABC):
             agent_name: The unique name of the agent.
             api_key: Optional API key for external services (e.g., LLMs).
         """
+        super().__init__(agent_name=agent_name, redis_client=redis_client)
+        
+        self.channel_name = f"{agent_name}_channel"
         self.agent_name = agent_name
         self.model = llm_model
         self.api_url = api_url
@@ -36,7 +41,147 @@ class BaseAgent(ABC):
         self.tools_api_url = settings.TOOLS_API_URL
 
         logger.info(f"Initializing {self.agent_name}...")
+        
+    async def publish_to_frontend(self, event_type: str, data: Dict[str, Any]):
+        """Publishes messages to the central frontend channel via Redis."""
+        payload = {
+            "type": event_type,
+            "agent": self.agent_name,
+            "data": data,
+        }
+        try:
+            # Use the helper or direct redis client publish
+            await self.redis_publisher.publish(settings.FRONTEND_CHANNEL, payload)
+            # Or: await self.redis_client.publish(settings.FRONTEND_CHANNEL, json.dumps(payload))
+            logger.debug(f"Published to {settings.FRONTEND_CHANNEL}: {event_type}")
+        except Exception as e:
+            logger.error(f"Failed to publish to frontend channel: {e}", exc_info=True)
 
+    async def request_tool_execution(self, tool_name: str, tool_input: Dict[str, Any], task_context: Optional[Any] = None) -> Optional[str]:
+        """
+        Asynchronously requests execution of a tool via the ToolCore API.
+
+        Args:
+            tool_name: The name of the tool to execute.
+            tool_input: A dictionary containing the input parameters for the tool.
+            task_context: Optional data related to the task that initiated this tool call,
+                          useful when handling the response.
+
+        Returns:
+            The unique execution_id if the request was successful, otherwise None.
+        """
+        toolcore_url = f"{settings.TOOLCORE_API_URL}/execute/"
+        execution_id = str(uuid.uuid4()) # Generate unique ID for tracking
+
+        payload = {
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "callback_channel": self.redis_channel, # Tell ToolCore where to send results
+            "execution_id": execution_id
+        }
+        logger.info(f"Agent {self.agent_name} requesting tool '{tool_name}' with execution_id: {execution_id}")
+        logger.debug(f"Tool request payload: {payload}")
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(toolcore_url, json=payload) as response:
+                    if response.status == 202: # Accepted for background processing
+                        response_data = await response.json()
+                        api_execution_id = response_data.get("execution_id")
+                        job_id = response_data.get("job_id") # Background task ID
+
+                        if api_execution_id != execution_id:
+                             logger.warning(f"API execution_id mismatch: Sent {execution_id}, Received {api_execution_id}. Using received.")
+                             # Potentially update execution_id if ToolCore guarantees its uniqueness better
+                             # execution_id = api_execution_id # Or handle error
+
+                        logger.info(f"Tool '{tool_name}' execution accepted by ToolCore. Execution ID: {execution_id}, Job ID: {job_id}")
+                        # Store context about the pending call, keyed by execution_id
+                        self.pending_tool_calls[execution_id] = {
+                            "tool_name": tool_name,
+                            "tool_input": tool_input,
+                            "task_context": task_context, # Store context if needed later
+                            "status": "PENDING"
+                        }
+                        return execution_id
+                    else:
+                        error_detail = await response.text()
+                        logger.error(f"Error requesting tool execution '{tool_name}'. Status: {response.status}. Detail: {error_detail}")
+                        return None
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"Connection error requesting tool execution '{tool_name}': {e}", exc_info=True)
+            return None
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout requesting tool execution '{tool_name}'", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error requesting tool execution '{tool_name}': {e}", exc_info=True)
+            return None
+        
+    async def handle_redis_message(self, message_data: Dict[str, Any]):
+        """ Processes messages received on the agent's Redis channel. """
+        message_type = message_data.get("type")
+        data = message_data.get("data", {})
+
+        logger.debug(f"[{self.agent_name}] Handling Redis message: type={message_type}")
+
+        if message_type == "TOOL_COMPLETE":
+            await self.handle_tool_response(data)
+        # Add elif blocks here for other message types agent needs to handle
+        # elif message_type == "DIRECT_COMMAND":
+        #    await self.handle_direct_command(data)
+        else:
+            logger.warning(f"[{self.agent_name}] Received unknown message type on agent channel: {message_type}")
+
+    async def handle_tool_response(self, tool_result_data: Dict[str, Any]):
+        """ Processes the result of a tool execution received via Redis. """
+        execution_id = tool_result_data.get("execution_id")
+        status = tool_result_data.get("status")
+        result = tool_result_data.get("result")
+        error = tool_result_data.get("error")
+
+        if not execution_id:
+            logger.warning(f"[{self.agent_name}] Received tool response without execution_id.")
+            return
+
+        if execution_id not in self.pending_tool_calls:
+            logger.warning(f"[{self.agent_name}] Received tool response for unknown/handled execution_id: {execution_id}")
+            return
+
+        pending_call_info = self.pending_tool_calls.pop(execution_id)
+        tool_name = pending_call_info["tool_name"]
+        task_context = pending_call_info["task_context"]
+
+        logger.info(f"[{self.agent_name}] Received result for tool '{tool_name}' (ID: {execution_id}). Status: {status}")
+        await self.publish_to_frontend("agent_status", {"status": "PROCESSING_TOOL_RESULT", "tool_name": tool_name, "execution_id": execution_id, "result_status": status})
+
+        if status == "success":
+            logger.debug(f"[{self.agent_name}] Tool '{tool_name}' result: {result}")
+            await self._process_successful_tool_result(tool_name, result, execution_id, task_context) # Pass execution_id
+        else:
+            logger.error(f"[{self.agent_name}] Tool '{tool_name}' (ID: {execution_id}) failed. Error: {error}")
+            await self._process_failed_tool_result(tool_name, error, execution_id, task_context) # Pass execution_id
+
+    # Placeholder methods to be implemented by subclasses
+    async def _process_successful_tool_result(self, tool_name: str, result: Any, execution_id: str, context: Any):
+        raise NotImplementedError(f"{self.__class__.__name__} must implement _process_successful_tool_result")
+
+    async def _process_failed_tool_result(self, tool_name: str, error: str, execution_id: str, context: Any):
+        raise NotImplementedError(f"{self.__class__.__name__} must implement _process_failed_tool_result")
+
+        # Placeholder methods to be implemented by subclasses
+    async def _process_successful_tool_result(self, tool_name: str, result: Any, context: Any):
+        """Agent-specific logic for handling successful tool results."""
+        logger.warning(f"_process_successful_tool_result not implemented in {self.__class__.__name__}")
+        # Example: self.add_message_to_history({"role": "tool", "tool_name": tool_name, "content": json.dumps(result)})
+        # Example: await self.generate_response() # Trigger next LLM call
+
+    async def _process_failed_tool_result(self, tool_name: str, error: str, context: Any):
+        """Agent-specific logic for handling failed tool results."""
+        logger.warning(f"_process_failed_tool_result not implemented in {self.__class__.__name__}")
+        # Example: self.add_message_to_history({"role": "system", "content": f"Tool {tool_name} failed: {error}"})
+            # Example: await self.generate_response() # Trigger next LLM call, maybe informing user
+                
     async def initialize(self):
         """Asynchronously initialize resources like Redis connection and HTTP session."""
         if not self.redis_client:
@@ -84,7 +229,7 @@ class BaseAgent(ABC):
             except asyncio.CancelledError:
                 logger.info(f"{self.agent_name} listener task cancelled.")
             except Exception as e:
-                 logger.error(f"Error during listener task shutdown for {self.agent_name}: {e}")
+                logger.error(f"Error during listener task shutdown for {self.agent_name}: {e}")
             self._listener_task = None
 
         # Stop heartbeat task
@@ -95,16 +240,16 @@ class BaseAgent(ABC):
             except asyncio.CancelledError:
                 logger.info(f"{self.agent_name} heartbeat task cancelled.")
             except Exception as e:
-                 logger.error(f"Error during heartbeat task shutdown for {self.agent_name}: {e}")
+                logger.error(f"Error during heartbeat task shutdown for {self.agent_name}: {e}")
             self._heartbeat_task = None
 
         # Clean up pubsub
         if self.pubsub:
             try:
-                 # Unsubscribe might be needed depending on redis-py version and usage
-                 await self.pubsub.unsubscribe(self.channel_name)
-                 await self.pubsub.close()
-                 logger.info(f"{self.agent_name} unsubscribed and closed pubsub.")
+                # Unsubscribe might be needed depending on redis-py version and usage
+                await self.pubsub.unsubscribe(self.channel_name)
+                await self.pubsub.close()
+                logger.info(f"{self.agent_name} unsubscribed and closed pubsub.")
             except Exception as e:
                 logger.error(f"Error closing pubsub for {self.agent_name}: {e}")
             self.pubsub = None
@@ -118,7 +263,7 @@ class BaseAgent(ABC):
         # Note: Redis pool is managed globally, not closed here.
 
         logger.success(f"{self.agent_name} stopped successfully.")
-         # Optionally send a shutdown message
+        # Optionally send a shutdown message
         # await self.publish_system_message("Agent stopped.") # Might fail if redis conn closed
 
 
@@ -147,56 +292,56 @@ class BaseAgent(ABC):
                 await asyncio.sleep(settings.HEARTBEAT_INTERVAL * 2)
 
     async def _listen_for_messages(self):
-        """Listens for messages on the agent's dedicated Redis channel."""
+        """ Listens for messages on the agent's dedicated Redis channel. (Final Version) """
         if not self.redis_client:
             logger.error(f"{self.agent_name} cannot listen, Redis client not available.")
             return
 
-        self.pubsub = self.redis_client.pubsub()
-        await self.pubsub.subscribe(self.channel_name)
-        logger.info(f"{self.agent_name} subscribed to channel '{self.channel_name}'.")
-
-        while self.is_running:
+        while self.is_running: # Outer loop for handling reconnections
             try:
-                # Use listen() which handles reconnections better potentially
-                async for message in self.pubsub.listen():
-                     if message is None or not self.is_running:
-                         continue # Skip null messages or if stopping
+                self.pubsub = self.redis_client.pubsub()
+                await self.pubsub.subscribe(self.channel_name)
+                logger.info(f"[{self.agent_name}] Subscribed to channel '{self.channel_name}'.")
 
-                     if message["type"] == "subscribe":
-                         logger.info(f"{self.agent_name} successfully subscribed: {message}")
-                         continue
-                     if message["type"] == "unsubscribe":
-                         logger.info(f"{self.agent_name} successfully unsubscribed: {message}")
-                         break # Stop listening if unsubscribed
+                # Inner loop for processing messages
+                while self.is_running:
+                    # Use get_message with timeout to allow checking self.is_running
+                    message = await self.pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                    if not self.is_running: break # Check immediately after potential block
 
-                     if message["type"] == "message":
-                         logger.debug(f"{self.agent_name} received raw message on '{message['channel']}': {message['data']}")
-                         # Process the message in a separate task to avoid blocking listener
-                         asyncio.create_task(self.handle_incoming_message(message["data"]))
-                     else:
-                         logger.warning(f"{self.agent_name} received unexpected pubsub message type: {message['type']}")
+                    if message and message["type"] == "message":
+                        data = message["data"].decode("utf-8")
+                        logger.debug(f"[{self.agent_name}] received raw message: {data[:150]}...")
+                        try:
+                            message_data = json.loads(data)
+                            # Route ALL messages from channel to the central handler
+                            await self.handle_redis_message(message_data)
+                        except json.JSONDecodeError:
+                            logger.error(f"[{self.agent_name}] failed to decode JSON: {data[:100]}...")
+                        except Exception as e: # Catch errors within message processing
+                            logger.error(f"[{self.agent_name}] Error in handle_redis_message: {e}", exc_info=True)
+                    # If message is None (timeout), loop continues checking self.is_running
 
             except redis.exceptions.ConnectionError as e:
-                logger.error(f"{self.agent_name} Redis connection error in listener: {e}. Attempting to reconnect...")
-                await asyncio.sleep(5) # Wait before potentially retrying (handled by redis-py?)
-                # Re-subscribe might be necessary depending on redis-py auto-reconnect behavior
-                if self.is_running and self.pubsub:
-                    try:
-                        await self.pubsub.subscribe(self.channel_name)
-                        logger.info(f"{self.agent_name} re-subscribed after connection error.")
-                    except Exception as sub_e:
-                        logger.error(f"{self.agent_name} failed to re-subscribe: {sub_e}")
-                        # Consider stopping the agent if re-subscription fails repeatedly
-                        await self.stop()
-                        break
+                logger.error(f"[{self.agent_name}] Redis connection error in listener: {e}. Retrying in 5s...")
+                await asyncio.sleep(5) # Wait before retrying subscription
             except asyncio.CancelledError:
-                 logger.info(f"{self.agent_name} listener loop cancelled.")
-                 break
+                logger.info(f"[{self.agent_name}] Listener task cancelled.")
+                break # Exit outer loop
             except Exception as e:
-                logger.error(f"Unexpected error in {self.agent_name} listener loop: {e}")
-                # Avoid busy-looping
-                await asyncio.sleep(5)
+                logger.error(f"Unexpected error in [{self.agent_name}] listener outer loop: {e}", exc_info=True)
+                await asyncio.sleep(5) # Wait before retrying subscription
+            finally:
+                # Clean up pubsub if it exists before potentially retrying subscription
+                if self.pubsub:
+                    try:
+                        await self.pubsub.unsubscribe(self.channel_name)
+                        # Consider closing pubsub if necessary, depends on redis library usage
+                        # await self.pubsub.close()
+                    except Exception as e:
+                        logger.warning(f"[{self.agent_name}] Error unsubscribing/closing pubsub in finally block: {e}")
+                    self.pubsub = None
+        logger.info(f"[{self.agent_name}] Listener task finished.")
 
 
     async def handle_incoming_message(self, raw_data: str):
@@ -206,31 +351,31 @@ class BaseAgent(ABC):
             # This is a bit hacky, ideally structure would guarantee parsability
             # or we'd have a wrapper structure indicating the type.
             try:
-                 temp_data = json.loads(raw_data)
-                 intent_str = temp_data.get("intent")
-                 message_model = BaseMessage # Default
-                 if intent_str == MessageIntent.START_TASK.value:
-                     message_model = Task
-                 elif intent_str == MessageIntent.MODIFY_TASK.value:
-                     # Could be TaskResult or Task, try TaskResult first
-                     try:
-                         parsed_message = TaskResult.deserialize(raw_data)
-                     except Exception:
-                         parsed_message = Task.deserialize(raw_data) # Fallback to Task
-                 elif intent_str == MessageIntent.CHAT.value:
-                     message_model = Message
-                 else: # Handle other intents or fallback
-                     message_model = BaseMessage
-                     # Try parsing with the determined model (or BaseMessage as fallback)
-                     parsed_message = message_model.model_validate_json(raw_data)
+                temp_data = json.loads(raw_data)
+                intent_str = temp_data.get("intent")
+                message_model = BaseMessage # Default
+                if intent_str == MessageIntent.START_TASK.value:
+                    message_model = Task
+                elif intent_str == MessageIntent.MODIFY_TASK.value:
+                    # Could be TaskResult or Task, try TaskResult first
+                    try:
+                        parsed_message = TaskResult.deserialize(raw_data)
+                    except Exception:
+                        parsed_message = Task.deserialize(raw_data) # Fallback to Task
+                elif intent_str == MessageIntent.CHAT.value:
+                    message_model = Message
+                else: # Handle other intents or fallback
+                    message_model = BaseMessage
+                    # Try parsing with the determined model (or BaseMessage as fallback)
+                    parsed_message = message_model.model_validate_json(raw_data)
 
             except json.JSONDecodeError:
-                 logger.error(f"{self.agent_name} received invalid JSON: {raw_data[:100]}...")
-                 return
+                logger.error(f"{self.agent_name} received invalid JSON: {raw_data[:100]}...")
+                return
             except Exception as e: # Catch Pydantic validation errors etc.
-                 logger.error(f"{self.agent_name} failed to parse message: {e}. Raw data: {raw_data[:100]}...")
-                 # Maybe send an error message back?
-                 return
+                logger.error(f"{self.agent_name} failed to parse message: {e}. Raw data: {raw_data[:100]}...")
+                # Maybe send an error message back?
+                return
 
             logger.info(f"{self.agent_name} received {type(parsed_message).__name__} (Intent: {parsed_message.intent.value}) from {parsed_message.agent}")
 
@@ -238,14 +383,14 @@ class BaseAgent(ABC):
             if parsed_message.intent == MessageIntent.START_TASK and isinstance(parsed_message, Task):
                 await self.handle_start_task(parsed_message)
             elif parsed_message.intent == MessageIntent.MODIFY_TASK and (isinstance(parsed_message, Task) or isinstance(parsed_message, TaskResult)):
-                 # Can be feedback (Task) or a result (TaskResult)
-                 await self.handle_modify_task(parsed_message)
+                # Can be feedback (Task) or a result (TaskResult)
+                await self.handle_modify_task(parsed_message)
             elif parsed_message.intent == MessageIntent.CHAT and isinstance(parsed_message, Message):
                 await self.handle_chat_message(parsed_message)
             elif parsed_message.intent == MessageIntent.CHECK_STATUS:
-                 await self.handle_check_status(parsed_message)
+                await self.handle_check_status(parsed_message)
             elif parsed_message.intent == MessageIntent.TOOL_RESPONSE and isinstance(parsed_message, TaskResult):
-                 await self.handle_tool_response(parsed_message)
+                await self.handle_tool_response(parsed_message)
             elif parsed_message.intent == MessageIntent.SYSTEM and isinstance(parsed_message, Message):
                 await self.handle_system_message(parsed_message)
             elif parsed_message.intent == MessageIntent.ORCHESTRATION and isinstance(parsed_message, Message):
@@ -261,11 +406,10 @@ class BaseAgent(ABC):
                 task_id = json.loads(raw_data).get("task_id", "unknown")
                 await self.publish_error(task_id, f"Error processing message: {e}")
             except Exception as report_e:
-                 logger.error(f"Failed to report error for {self.agent_name}: {report_e}")
+                logger.error(f"Failed to report error for {self.agent_name}: {report_e}")
 
-
-    # --- Abstract Methods for Intent Handling ---
-    # Subclasses should override these with specific logic
+        # --- Abstract Methods for Intent Handling ---
+        # Subclasses should override these with specific logic
 
     @abstractmethod
     async def handle_start_task(self, task: Task):
@@ -328,9 +472,15 @@ class BaseAgent(ABC):
         target_channel = get_agent_channel(target_agent_name)
         await self._publish(target_channel, message_obj)
 
-    async def publish_to_frontend(self, message_obj: BaseMessage):
-        """Sends a message to the frontend via the WebSocket server's channel."""
-        await self._publish(settings.FRONTEND_CHANNEL, message_obj)
+    async def publish_to_frontend(self, event_type: str, data: Dict[str, Any]):
+        """Publishes messages to the central frontend channel via Redis."""
+        payload = {
+            "type": event_type,
+            "agent": self.agent_name,
+            "data": data,
+        }
+        await self.redis_publisher.publish(settings.FRONTEND_CHANNEL, payload)
+        logger.debug(f"[{self.agent_name}] Published to {settings.FRONTEND_CHANNEL}: {event_type}")
 
     async def publish_system_message(self, content: str, task_id: str = "system"):
         """Publishes a system message, typically for logging or frontend display."""
@@ -360,97 +510,86 @@ class BaseAgent(ABC):
         await self.publish_to_frontend(result) # Keep frontend informed
 
     async def publish_completion(self, task_id: str, final_content: str, target_agent: str, confidence: float = 1.0, contributing_agents: Optional[List[str]] = None):
-         """Publishes a final successful TaskResult."""
-         result = TaskResultFactory.create_task_result(
-             task_id=task_id,
-             agent=self.agent_name,
-             content=final_content,
-             target_agent=target_agent,
-             event=TaskEvent.COMPLETE,
-             outcome=TaskOutcome.SUCCESS,
-             confidence=confidence,
-             contributing_agents=contributing_agents or [self.agent_name]
-         )
-         await self.publish_to_agent(target_agent, result)
-         await self.publish_to_frontend(result)
+        """Publishes a final successful TaskResult."""
+        result = TaskResultFactory.create_task_result(
+            task_id=task_id,
+            agent=self.agent_name,
+            content=final_content,
+            target_agent=target_agent,
+            event=TaskEvent.COMPLETE,
+            outcome=TaskOutcome.SUCCESS,
+            confidence=confidence,
+            contributing_agents=contributing_agents or [self.agent_name]
+        )
+        await self.publish_to_agent(target_agent, result)
+        await self.publish_to_frontend(result)
 
     async def publish_error(self, task_id: str, error_content: str, target_agent: Optional[str] = None):
-         """Publishes a TaskResult indicating failure."""
-         # Determine target: specific agent, orchestrator (grok), or just frontend/system
-         target = target_agent or settings.GROK_AGENT_NAME # Default to informing Grok
+        """Publishes a TaskResult indicating failure."""
+        # Determine target: specific agent, orchestrator (grok), or just frontend/system
+        target = target_agent or settings.GROK_AGENT_NAME # Default to informing Grok
 
-         result = TaskResultFactory.create_task_result(
-             task_id=task_id,
-             agent=self.agent_name,
-             content=f"Error: {error_content}",
-             target_agent=target,
-             event=TaskEvent.FAIL,
-             outcome=TaskOutcome.FAILURE,
-             confidence=0.0 # No confidence in failure case
-         )
-         if target != self.agent_name: # Avoid self-messaging if Grok is the target
-              await self.publish_to_agent(target, result)
-         await self.publish_to_frontend(result) # Always inform frontend of errors
+        result = TaskResultFactory.create_task_result(
+            task_id=task_id,
+            agent=self.agent_name,
+            content=f"Error: {error_content}",
+            target_agent=target,
+            event=TaskEvent.FAIL,
+            outcome=TaskOutcome.FAILURE,
+            confidence=0.0 # No confidence in failure case
+        )
+        if target != self.agent_name: # Avoid self-messaging if Grok is the target
+            await self.publish_to_agent(target, result)
+        await self.publish_to_frontend(result) # Always inform frontend of errors
 
     # --- ToolCore Interaction ---
 
-    async def request_tool_execution(self, task_id: str, tool_name: str, parameters: Dict[str, Any], orchestrator: str = settings.GROK_AGENT_NAME):
-        """Sends a request to ToolCore API to execute a tool."""
-        if not self.http_session:
-             logger.error(f"{self.agent_name} cannot request tool execution, HTTP session not initialized.")
-             await self.publish_error(task_id, "Tool execution failed: Agent HTTP client not ready.", orchestrator)
-             return
+    async def request_tool_execution(self, tool_name: str, tool_input: Dict[str, Any], task_context: Optional[Any] = None) -> Optional[str]:
+        """ Asynchronously requests execution of a tool via the ToolCore API. """
+        toolcore_url = f"{settings.TOOLCORE_API_URL}/execute/"
+        execution_id = f"{self.agent_name}-{tool_name}-{uuid.uuid4()}" # More descriptive ID
 
-        url = f"{self.tools_api_url}/execute/"
         payload = {
             "tool_name": tool_name,
-            "parameters": parameters,
-            "requesting_agent": self.agent_name, # Let ToolCore know who asked
-            "task_id": task_id # Link execution back to the task
+            "tool_input": tool_input,
+            "callback_channel": self.channel_name, # Our agent channel
+            "execution_id": execution_id
         }
-        logger.info(f"{self.agent_name} requesting tool '{tool_name}' execution for task {task_id} with params: {parameters}")
-
-        # Inform orchestrator/frontend that we are waiting
-        await self.publish_update(task_id, TaskEvent.AWAITING_TOOL, f"Requesting execution of tool: {tool_name}", orchestrator)
+        logger.info(f"[{self.agent_name}] Requesting tool '{tool_name}' (Exec ID: {execution_id})")
+        await self.publish_to_frontend("agent_status", {"status": "AWAITING_TOOL", "tool_name": tool_name, "execution_id": execution_id}) # Publish status
 
         try:
-            async with self.http_session.post(url, json=payload) as response:
-                response_data = await response.json()
-                if response.status == 200:
-                    logger.success(f"{self.agent_name} received successful preliminary response from ToolCore for '{tool_name}': {response_data}")
-                    # IMPORTANT: ToolCore execution might be async. This response usually just acknowledges the request.
-                    # The actual result will likely come back via Redis Pub/Sub from the ToolCore *or* the ToolCore API
-                    # might return the result directly if execution is fast.
-                    # Assuming ToolCore sends result back via Redis (handled in handle_tool_response)
-                    # If API returns result directly:
-                    if response_data.get("status") == "completed":
-                        result_content = response_data.get("result", "Tool executed successfully, but no result content provided.")
-                        tool_result = TaskResultFactory.create_task_result(
-                            task_id=task_id,
-                            agent=settings.TOOLS_AGENT_NAME, # Result comes *from* ToolCore
-                            content=str(result_content), # Ensure content is string
-                            target_agent=self.agent_name, # Send result back to this agent
-                            event=TaskEvent.TOOL_COMPLETE,
-                            outcome=TaskOutcome.SUCCESS,
-                            confidence=1.0
-                        )
-                        await self.handle_tool_response(tool_result) # Process the result immediately
-                    elif response_data.get("status") == "failed":
-                         await self.publish_error(task_id, f"Tool '{tool_name}' execution failed: {response_data.get('error', 'Unknown error')}", orchestrator)
-                    else: # Pending/Acknowledged
-                         logger.info(f"ToolCore acknowledged request for '{tool_name}', waiting for async result.")
-
-                else:
-                    error_detail = response_data.get("detail", await response.text())
-                    logger.error(f"{self.agent_name} failed to execute tool '{tool_name}'. Status: {response.status}, Detail: {error_detail}")
-                    await self.publish_error(task_id, f"Tool execution request failed (Status {response.status}): {error_detail}", orchestrator)
-
-        except aiohttp.ClientConnectionError as e:
-            logger.error(f"{self.agent_name} connection error requesting tool '{tool_name}': {e}")
-            await self.publish_error(task_id, f"Tool execution failed: Cannot connect to ToolCore API ({e})", orchestrator)
+            async with aiohttp.ClientSession() as session:
+                async with session.post(toolcore_url, json=payload, timeout=settings.TOOLCORE_API_TIMEOUT) as response: # Add timeout
+                    if response.status == 202:
+                        response_data = await response.json()
+                        api_execution_id = response_data.get("execution_id")
+                        job_id = response_data.get("job_id")
+                        logger.info(f"[{self.agent_name}] Tool '{tool_name}' accepted by ToolCore. Execution ID: {api_execution_id}, Job ID: {job_id}")
+                        self.pending_tool_calls[execution_id] = { # Use OUR execution_id as key
+                            "tool_name": tool_name,
+                            "tool_input": tool_input,
+                            "task_context": task_context,
+                            "status": "PENDING"
+                        }
+                        return execution_id # Return OUR id
+                    else:
+                        error_detail = await response.text()
+                        logger.error(f"[{self.agent_name}] Error requesting tool '{tool_name}'. Status: {response.status}. Detail: {error_detail}")
+                        await self.publish_to_frontend("agent_error", {"error": f"Tool request failed: {response.status}", "tool_name": tool_name})
+                        return None
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"[{self.agent_name}] Connection error requesting tool '{tool_name}': {e}", exc_info=True)
+            await self.publish_to_frontend("agent_error", {"error": "ToolCore connection failed", "tool_name": tool_name})
+            return None
+        except asyncio.TimeoutError:
+            logger.error(f"[{self.agent_name}] Timeout requesting tool '{tool_name}'", exc_info=True)
+            await self.publish_to_frontend("agent_error", {"error": "ToolCore request timed out", "tool_name": tool_name})
+            return None
         except Exception as e:
-            logger.exception(f"{self.agent_name} unexpected error requesting tool '{tool_name}': {e}")
-            await self.publish_error(task_id, f"Tool execution failed: Unexpected error ({e})", orchestrator)
+            logger.error(f"[{self.agent_name}] Unexpected error requesting tool '{tool_name}': {e}", exc_info=True)
+            await self.publish_to_frontend("agent_error", {"error": "Unexpected error during tool request", "tool_name": tool_name})
+            return None
 
     # --- Placeholder for LLM Interaction ---
     async def _call_llm(self, prompt: str, **kwargs) -> str:
@@ -463,11 +602,11 @@ class BaseAgent(ABC):
     # --- Abstract method from spec example ---
     @abstractmethod
     async def get_notes(self) -> Dict[str, Any]:
-         """ Example method returning agent status or notes. """
-         pass
+        """ Example method returning agent status or notes. """
+        pass
 
     # --- Abstract method from spec example ---
     @abstractmethod
     async def process_response(self, response: Any, originating_agent: str):
-         """ Example method for processing responses from other agents. """
-         pass
+        """ Example method for processing responses from other agents. """
+        pass

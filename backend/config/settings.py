@@ -28,3 +28,4 @@ class Settings(BaseSettings):
         ENABLE_DEADLOCK_DETECTION = os.getenv("ENABLE_DEADLOCK_DETECTION", "true").lower() =="true",
         DEBATE_TIMEOUT = int(os.getenv("DEBATE_TIMEOUT", 30)),
         MAX_HISTORY_SIZE = int(os.getenv("MAX_HISTORY_SIZE", 10))
+        FRONTEND_CHANNEL = os.getenv("FRONTEND_CHANNEL")

@@ -119,7 +119,7 @@ class GrokAgent(BaseAgent):
             task.agent
         )
         await self.publish_to_frontend(new_task)
-
+        
     async def handle_modify_task(self, task_update: Union[Task, TaskResult]):
         task_id = task_update.task_id
         sender = task_update.agent

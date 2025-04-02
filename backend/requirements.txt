@@ -12,9 +12,13 @@ aiohttp>=3.11.14  # For async HTTP requests (agents -> toolcore)
 python-dotenv>=1.1.0 # For potentially loading .env files if not using docker env vars
 jsonschema>=4.23.0
 google-generativeai>=0.8.4
-httpx>=0.23.2
+httpx>=0.24.0
 OpenAI>=1.69.0
 umap
 matplotlib
 pandas
 xao_sdk
+docker==6.1.2
+python-multipart==0.0.6
+aiofiles>=24.1.0
+restrictedpython>=8.0

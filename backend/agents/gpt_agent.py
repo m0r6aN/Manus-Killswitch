@@ -102,40 +102,79 @@ class GPTAgent(BaseAgent):
             logger.error(f"LLM call failed: {e}")
             return "[LLM Error] Failed to generate response."
         
-    async def _stream_llm(self, prompt: str, ws, task_id: str, system_message: str):
-        system_message = self.agent_prompts.get(self.agent_name, "You are a helpful assistant.")
+    async def _stream_llm(self, prompt: str, history: list): # Example using publish_to_frontend
+        """ Refactored streaming method using Redis Pub/Sub """
+        logger.info(f"[{self.agent_name}] Starting LLM stream...")
+        await self.publish_to_frontend(event_type="stream_start", data={}) # Signal start
+        full_response = ""
         try:
-            stream = await openai.ChatCompletion.acreate(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                stream=True,
-            )
+            # Replace with your actual LLM streaming call
+            # async for chunk in self.llm_client.stream_completion(prompt, history):
+            # Mock stream for demo:
+            mock_stream = ["This ", "is ", "a ", "mocked ", "stream ", "response."]
+            for chunk_content in mock_stream:
+                 await asyncio.sleep(0.1) # Simulate network delay
+                 if chunk_content:
+                    full_response += chunk_content
+                    await self.publish_to_frontend(
+                        event_type="stream_update",
+                        data={"content": chunk_content}
+                    )
 
-            content = ""
-            async for chunk in stream:
-                delta = chunk.choices[0].delta.get("content", "")
-                content += delta
-                if delta.strip():
-                    # Real-time stream to frontend
-                    stream_msg = {
-                        "event": "stream_update",
-                        "data": {
-                            "agent": self.agent_name,
-                            "task_id": task_id,
-                            "delta": delta
-                        }
-                    }
-                    await ws.send(json.dumps(stream_msg))
-
-            return content
-
+            logger.info(f"[{self.agent_name}] LLM stream finished.")
+            await self.publish_to_frontend(event_type="stream_end", data={"full_response": full_response}) # Signal end
+            return full_response
         except Exception as e:
-            self.logger.error(f"Streaming LLM failed: {e}")
-            return "[LLM Streaming Error]"
+            logger.error(f"[{self.agent_name}] Error during LLM stream: {e}", exc_info=True)
+            await self.publish_to_frontend(
+                event_type="stream_error",
+                data={"error": f"LLM stream failed: {str(e)}"}
+            )
+            return None # Or handle error appropriately
+
+    # --- Implement tool result processing specific to GPTAgent ---
+
+    async def _process_successful_tool_result(self, tool_name: str, result: Any, context: Any):
+        """GPTAgent specific logic for successful tool results."""
+        logger.info(f"GPTAgent processing successful result from tool: {tool_name}")
+        # Example: Format the result and add it to the conversation history
+        #          before making the next call to the LLM.
+        tool_message = {
+            "role": "tool", # Or function call/result format expected by your LLM
+            "tool_call_id": context.get("tool_call_id") if context else None, # If using OpenAI Function Calling style
+            "name": tool_name,
+            "content": json.dumps(result), # LLMs usually expect stringified JSON
+        }
+        # self.add_to_history(tool_message) # Add to agent's internal history
+
+         # TODO: Implement actual logic based on the tool result
+        # - Add result to conversation history in the format expected by the LLM
+        # - Trigger next LLM call (e.g., self.generate_response())
+        # - Update internal state based on result
+        # Example placeholder action:
+        await self.publish_to_frontend("agent_action", {"action": "triggering_next_step", "tool_name": tool_name})
+
+
+    async def _process_failed_tool_result(self, tool_name: str, error: str, execution_id: str, context: Any):
+        """ GPTAgent specific logic for failed tool results. """
+        logger.info(f"[GPTAgent] Processing FAILED result from tool: {tool_name} (ID: {execution_id})")
+        logger.error(f"[GPTAgent] Tool Error Data: {error}")
+
+        # Example: Log the error clearly
+        print(f"\n=== TOOL FAILURE ({self.agent_name}) ===")
+        print(f"Tool: {tool_name}")
+        print(f"Execution ID: {execution_id}")
+        print(f"Error: {error}")
+        print("==================================\n")
+
+        # Example: Inform the user via frontend stream/message
+        error_message_content = f"Apologies, the tool '{tool_name}' encountered an error: {error}. I cannot proceed with that specific action right now."
+        await self.publish_to_frontend(
+            event_type="stream_update", # Or a dedicated error message type
+            data={"content": error_message_content}
+        )
+        # Optionally end the stream or publish a specific error event
+        await self.publish_to_frontend("agent_error", {"error": error_message_content, "tool_name": tool_name})
 
     async def handle_modify_task(self, task_update: Union[Task, TaskResult]):
         """Handles requests for refinement based on critique."""
@@ -192,7 +231,6 @@ class GPTAgent(BaseAgent):
         await self.publish_to_agent(settings.GROK_AGENT_NAME, result)
         await self.publish_to_frontend(result)
 
-
     async def handle_chat_message(self, message: Message, ws):
         """Handles chat messages directed at GPT."""
         logger.info(f"{self.agent_name} received CHAT from {message.agent}: {message.content[:50]}...")
@@ -210,7 +248,6 @@ class GPTAgent(BaseAgent):
         )
         await self.publish_to_agent(message.agent, reply)
         await self.publish_to_frontend(reply)
-
 
     async def handle_tool_response(self, tool_result: TaskResult, ws):
         """Handles results from ToolCore after requesting execution."""
@@ -249,7 +286,6 @@ class GPTAgent(BaseAgent):
             # Handle tool execution failure
             logger.error(f"Tool execution failed for task {tool_result.task_id}: {tool_result.content}")
             await self.publish_error(tool_result.task_id, f"Tool execution failed: {tool_result.content}", settings.GROK_AGENT_NAME)
-
 
     # --- Placeholder methods for Abstract Base Class ---
     async def get_notes(self) -> Dict[str, Any]:

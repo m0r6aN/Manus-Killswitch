@@ -1,7 +1,10 @@
 # WebSocket connection manager
 
+import asyncio
+import json
 from fastapi import WebSocket
 from typing import Dict, List, Optional
+from backend.config import settings
 from backend.core.config import logger
 import uuid
 
@@ -75,6 +78,66 @@ class ConnectionManager:
         # Remove disconnected clients after iteration
         for client_id in disconnected_clients:
             self.disconnect(client_id)
+            
+    async def frontend_redis_broadcaster(redis_client, manager):
+        """
+        Listens ONLY to the FRONTEND channel and broadcasts messages to WebSocket clients.
+        (This is your adapted existing listener)
+        """
+        channel = settings.FRONTEND_CHANNEL # Standardize channel name
+        pubsub = redis_client.pubsub()
+
+        while True: # Keep trying to connect/subscribe
+            try:
+                await pubsub.connect()
+                await pubsub.subscribe(channel)
+                logger.info(f"Frontend Broadcaster subscribed to Redis channel: {channel}")
+
+                while True: # Listen for messages
+                    try:
+                        message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                        if not message:
+                            await asyncio.sleep(0.01)
+                            continue
+
+                        if message["type"] == "message":
+                            data = message["data"]
+                            if isinstance(data, bytes):
+                                data = data.decode("utf-8")
+
+                            logger.debug(f"Frontend Broadcaster received: {data[:150]}...")
+
+                            if manager.get_active_connections_count() == 0:
+                                # logger.debug("No WebSocket clients, skipping broadcast") # Maybe too noisy
+                                continue
+
+                            try:
+                                json_data = json.loads(data)
+                                # Directly broadcast the received JSON data
+                                # Assumes agents format messages correctly via publish_to_frontend
+                                await manager.broadcast(json_data)
+
+                            except json.JSONDecodeError:
+                                logger.warning(f"Frontend Broadcaster received non-JSON data from {channel}: {data[:100]}...")
+                            except Exception as e:
+                                logger.error(f"Error broadcasting Redis message: {e}", exc_info=True)
+
+                    except asyncio.CancelledError:
+                        logger.info(f"Frontend Broadcaster task for {channel} cancelled.")
+                        await pubsub.unsubscribe(channel)
+                        return # Exit the outer loop as well
+                    except Exception as e: # Catch Redis connection errors etc.
+                        logger.error(f"Frontend Broadcaster error reading from {channel}: {e}", exc_info=True)
+                        await pubsub.unsubscribe(channel) # Unsubscribe before retrying connect
+                        break # Break inner loop, outer loop will retry subscribe
+            except Exception as e:
+                logger.error(f"Fatal error in Frontend Broadcaster setup for {channel}: {e}", exc_info=True)
+            finally:
+                if pubsub.is_connected():
+                    await pubsub.close() # Clean up connection
+
+            logger.info(f"Retrying Frontend Broadcaster subscription to {channel} in 5 seconds...")
+            await asyncio.sleep(5)
 
     def get_active_connections_count(self) -> int:
         """Returns the number of active connections."""

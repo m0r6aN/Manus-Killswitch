@@ -17,11 +17,7 @@ class CoordinatorAgent(BaseAgent):
     """
     def __init__(self):
         agent_name = os.environ.get("AGENT_NAME")
-        llm_model = os.environ.get("LLM_MODEL")
-        api_key = os.environ.get("AGENT_API_KEY")
-        api_url = os.environ.get("API_URL")
-        api_version = os.environ.get("API_VERSION")
-        
+               
         super().__init__(agent_name=agent_name,)
         # Get required agents from settings
         self.required_agents: List[str] = settings.REQUIRED_AGENTS_FOR_READY

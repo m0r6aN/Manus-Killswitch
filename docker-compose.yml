@@ -33,6 +33,83 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+   # Python Sandbox Executor
+  sandbox-executor:
+    build:
+      context: ./sandbox-executor
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Mount Docker socket
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+    networks:
+      - task-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Tool Core API
+  tool-core:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    depends_on:
+      - redis
+      - sandbox-executor
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - SANDBOX_API_URL=http://sandbox-executor:8000
+      - LOG_LEVEL=INFO
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # Task Manager API
+  task-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
+    depends_on:
+      - redis
+      - tool-core
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - TOOL_API_URL=http://tool-core:8000
+      - LOG_LEVEL=INFO
+    networks:
+      - task-network
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - task-manager
+      - tool-core
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8003
+      - NEXT_PUBLIC_TOOL_API_URL=http://localhost:8002
+    networks:
+      - task-network
+    restart: unless-stopped
+
   tools-agent:
     build:
       context: .
@@ -141,6 +218,27 @@ services:
       - redis
       - websocket-server
       - tools-agent
+    restart: unless-stopped
+
+  codex-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: manus_codex_agent
+    command: python -m backend.main_codex_agent
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - AGENT_NAME=${CODEX_AGENT_NAME}
+      - LOGURU_LEVEL=DEBUG
+    volumes:
+      - ./backend:/app/backend
+    networks:
+      - ai-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      # Doesn't strictly depend on other agents being up, as its job *is* to wait for them
     restart: unless-stopped
 
   coordinator-agent:

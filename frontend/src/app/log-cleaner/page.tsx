@@ -1,22 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import Sidebar from "@/components/custom/Sidebar";
+import Sidebar from "@/components/nav/sidebar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label"; // Add this import
 import { useToast } from "@/app/hooks/use-toast";
 import { Clipboard } from "lucide-react";
-import { useWebSocket, WebSocketProvider } from "@/contexts/websocket-context";
+import { useWebSocket } from "@/contexts/websocket-context";
 
 export default function LogCleanerPage() {
   const [inputLogs, setInputLogs] = useState("");
   const [cleanedLogs, setCleanedLogs] = useState("");
   const [addLineBreaks, setAddLineBreaks] = useState(false); // New state
   const { toast } = useToast();
-  const [agentStatus, setAgentStatus] = useState<{ [key: string]: string }>({});
-  const { socket, isConnected, sendMessage, connectionAttempts } = useWebSocket();
+  const { isConnected } = useWebSocket();
 
   const cleanLogs = () => {
     if (!inputLogs.trim()) {
@@ -48,7 +47,7 @@ export default function LogCleanerPage() {
 
   return (
     <div className="flex h-screen">
-      <Sidebar isConnected={isConnected} agentStatus={agentStatus} />
+      <Sidebar isConnected={isConnected} agentStatus={{ status: isConnected ? "Online" : "Offline" }} />
       <div className="flex-1 p-6 bg-background text-foreground">
         <h1 className="text-2xl font-bold mb-4">Log Cleaner</h1>
         <div className="space-y-4">
