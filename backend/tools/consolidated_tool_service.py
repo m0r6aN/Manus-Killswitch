@@ -437,7 +437,7 @@ async def execute_tool_endpoint(
     # db: AsyncSession = Depends(get_db), # Don't need db session here directly
     redis_client: redis.Redis = Depends(get_redis_pool), # Still useful for direct publish if needed
     tool_service: ToolCoreService = Depends(get_tool_service),
-    request: Request # Access request to get app state
+    request: Request = None # Access request to get app state
 ):
     """ Accepts HTTP tool execution request, runs via BackgroundTasks. """
     tool_name = request_data.tool_name
